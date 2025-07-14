@@ -1,0 +1,1 @@
+# 전길원 SoftThinking 논문 리뷰
