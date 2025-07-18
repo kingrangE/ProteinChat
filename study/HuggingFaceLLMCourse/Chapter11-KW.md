@@ -474,4 +474,60 @@ trainer.train()
 1. LLM as Judge
     - LLM을 사용하여 평가
     - 기존 보다 상세한 피드백이 가능하지만, 모델 자체의 편향과 한계가 존재
-2. 
+2. Evaluation Arenas
+    - Crowedsourced Feedback을 통해 LLM을 평가하는 방식(ex, Chatbot Arena -> voting)
+    - 이렇게하면 real-world usage를 더 잘 capture할 수 있음 (실제로 좋은거)
+3. Custom Benchmark Suites
+    - 조직에서 직접 개발한 내부 벤치마크 스위트, 실제 배포 조건을 반영하는 도메인별 지식 테스트와 평가 시나리오가 포함된다.
+
+### Custom Evaluation
+- Standard benchmark가 baseline을 제시하지만, 이것이 유일한 평가 방식이 되어서는 안된다. Custom Evaluation을 필수!
+    1. Standard benchmark로 시작하기
+    2. 사용 사례의 구체적인 요구 사항과 조건을 파악하기, 모델이 실제로 어떤 작업을 수행하게 되며, 어떤 종류의 에러가 가장 문제가 될 수 있는지 파악하기
+    3. 실제 사용 사례를 반영하는 맞춤형 데이터 세트를 개발
+        1. 나의 도메인의 Real User Query 
+        2. 내가 실제 마주한 edge case 찾기
+        3. 특히 어려운 시나리오 찾기
+    4. Multi-layered evaluation strategy 구현 고려
+        1. 빠른 피드백을 위한 Automated Metric
+        2. 인간 평가 (미묘한 이해)
+        3. specialized application을 위한 Domain Expert Review
+        4. A/B Test
+
+### Implementing Custom Evaluations
+- 이 섹션에서는 미세 조정된 모델에 대한 평가 구현을 다룸 
+- lighteval을 사용하면 라이브러리에 내장된 다양한 작업을 포함하는 표준 평가 벤치마크에서 평가 가능
+- LightEval task들은 아래와 같은 구체적 포맷을 사용하여 정의된다:
+    - `{suite}|{task}|{num_few_shot}|{auto_reduce}`
+        - suite : benchmark suite (mmlu, truthfulqa 등)
+        - task : suite 안의 구체적인 task
+        - num_few_shot : Prompt 안에 포함된 example의 수 (0 -> zeroshot)
+        - auto reduce : Prompt가 너무 길면 자동적으로 줄일지 말지 (0 or 1)
+    - ex, `mmlu|abstract_algebra|0|0`
+        - mmlu의 abstract algebra task를 zero shot inference 평가
+
+### Example Evaluation Pipeline
+- lighteval과 vllm backend를 사용하여 평가하는 예시
+```bash
+lighteval accelerate \
+    "pretrained=your-model-name" \
+    "mmlu|anatomy|0|0" \
+    "mmlu|high_school_biology|0|0" \
+    "mmlu|high_school_chemistry|0|0" \
+    "mmlu|professional_medicine|0|0" \
+    --max_samples 40 \
+    --batch_size 1 \
+    --output_path "./results" \
+    --save_generations true
+```
+- result
+```bash
+|                  Task                  |Version|Metric|Value |   |Stderr|
+|----------------------------------------|------:|------|-----:|---|-----:|
+|all                                     |       |acc   |0.3333|±  |0.1169|
+|leaderboard:mmlu:_average:5             |       |acc   |0.3400|±  |0.1121|
+|leaderboard:mmlu:anatomy:5              |      0|acc   |0.4500|±  |0.1141|
+|leaderboard:mmlu:high_school_biology:5  |      0|acc   |0.1500|±  |0.0819|
+```
+
+
