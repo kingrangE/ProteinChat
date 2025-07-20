@@ -15,4 +15,8 @@
     - [ ] Find evaluation metric 
 - LLM 개발 팀
     - [ ] Reinforcement Learning 학습
-    - [ ] 진행할 작업 관련 논문 학습
+        - [Survey Paper](https://arxiv.org/pdf/2412.10400)
+    - [ ] 현규님이 공유해주신 Paper 학습
+        - [ProtT3](https://aclanthology.org/2024.acl-long.324.pdf)
+    - [ ] LoRA 실습 베이스라인 코드를 기반으로 성능 향상 개별적 연구
+    - [ ] Soft Prompt 실습 베이스라인 코드를 기반으로 성능 향상 개별적 연구
