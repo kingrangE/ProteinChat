@@ -120,7 +120,7 @@ def lora_finetuning(model, tokenizer, train_dataset):
         gradient_accumulation_steps=4,   # Gradient 4번 누적 후 update (Batchsize 16와 같아짐)
         warmup_steps=10,                 # Warmup step 수
         weight_decay=0.01,               # 가중치 decay 비율
-        logging_dir= './logs'
+        logging_dir= './logs',
         logging_steps=10,                
         fp16=use_fp16,                   # CUDA가 가능할때만 가능하므로 use_fp16 전달
     )
