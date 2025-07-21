@@ -345,7 +345,7 @@ trainer.train()
 
 ### Fine-tune LLM using trl and the SFTTrainer with LoRA
 - trl의 SFTTrainer는 LoRA Adapter와의 통합을 제공함. 따라서 우리는 LoRA를 SFT에서 한 것처럼 Finetune 가능
-- 본 장에서는 PEFT 라이브러리의 `LoRAConfig`Class를 사용할 예정. 다음은 setup에서 요구하는 몇가지 configuration setting
+- 본 장에서는 PEFT 라이브러리의 `LoRAConfig`Class를 사용할 예정. 다음은 setup에서 요구하는 몇가지 configuration setting하는 과정
     1. Define LoRA Configuration(rank, alpha, dropout)
     2. PEFT Config를 바탕으로 SFTTrainer 생성
     3. Adapter weight을 훈련하고 저장
