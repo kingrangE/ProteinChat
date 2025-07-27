@@ -15,17 +15,18 @@
         - Rostlab/prot_bert ( < 3B)
         - [A Fine-tuning Dataset and Benchmark for Large Language Models for Protein Understanding](https://arxiv.org/pdf/2406.05540)
             - Normal LLM
-                - internlm/internlm-7b/20b
+                - internlm/internlm-7b / 20b
                 - Mistral-7B-instruct-v0.2
                 - SmolLM3 3B
-                - EXAONE 4.0 1.2B	
-                - Llama 3.1 Nemotron Nano 8B V1	
+                - EXAONE 4.0 1.2B
+                - Llama 3.1 Nemotron Nano 8B V1
                 - Llama 3.2 3B Instruct
                 - Gemma 3 4B
             --- 
             - Bio LLM
                 - BioMistral/BioMistral-7B
-    - [X] Find evaluation metric 
+
+    - [X] Find evaluation metric
         - ProteinLMBench (RAG+GPT로 생성한 944sample Dataset)
         - PEER
 
