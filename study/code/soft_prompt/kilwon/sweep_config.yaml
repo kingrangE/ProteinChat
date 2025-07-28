@@ -1,0 +1,23 @@
+# 파일 이름: sweep_config.yaml
+program: main.py      # 실행할 파이썬 스크립트
+method: bayes                # 탐색 전략 (bayes, random, grid)
+metric:
+  name: eval/accuracy        # 최적화할 목표 지표 (Trainer는 'eval/' 접두사를 붙임)
+  goal: maximize             # 목표: 최대화
+
+parameters:
+  epochs:
+    distribution: int_uniform # 정수형 균등 분포
+    min: 1
+    max: 3
+
+  learning_rate:
+    distribution: log_uniform_values # 로그 스케일 균등 분포 (1e-4 ~ 1e-2)
+    min: 0.0001
+    max: 0.01
+
+  batch_size:
+    values: [4,8,16]           
+
+  num_virtual_tokens:
+    values: [10, 20, 30]     
