@@ -1,6 +1,6 @@
 ## installation
 ``` bash
-pip install git+https://github.com/lgai-exaone/transformers@add-exaone4 accelerate torch torchvision torchaudio peft trl tqdm pandas 
+pip install git+https://github.com/lgai-exaone/transformers@add-exaone4 accelerate torch torchvision torchaudio peft trl tqdm pandas wandb
 ```
 
 ## Usage
