@@ -157,4 +157,135 @@
     3. Self-Correction : 2에서 인식한 내용을 바탕으로 접근 방식 수정
     4. Explanation : 왜 새로운 접근이 더 나은지 설명할 수 있음
 
-- 
+- 이 과정은 단순한 암기보다는 학습을 보여준다. 아래에서 예시를 통해 Aha moment를 갖는 순간을 상상하자
+    - EX, 퍼즐을 해결하는 상황
+        1. First try : 이 조각은 색을 보니까 여기 둬야해
+        2. Recognition : 잠만, 모양 안 맞네
+        3. Self-Correction : 아 그럼 저기에 둬야한다.
+        4. Explanation : 왜냐면 이 위치에서 색, 모양 둘다 맞잖아
+
+- 이 능력은 단순한 훈련 데이터 암기가 아니라 RL로 학습하는 것
+
+### The Training Process
+- R1 훈련은 multi-phase process
+    - 각 phase와 phase의 key innovation 분석
+        - final process는 2가지 모델 생성
+            1. DeepSeek-R1-Zero : 순서하게 RL만으로 훈련된 모델
+            2. DeepSeek-R1 : DeepSeek-R1-Zero을 기반으로 SFT하여 만든 모델
+            | Feature | DeepSeep-R1-Zero | DeepSeek-R1 |
+            | ---|---|---|
+            | Training Approach | Pure RL | Multi-Phase (SFT+RL)|
+            | FineTuning | None | Supervised FineTuning |
+            | Reasoning Capability | Emergent | Enhanced | 
+            | Key Characteristics | Strong reasoning but readability issues | Better language consistency and readability |
+    - DeepSeek-R1-Zero가 순수 RL의 잠재성을 증명하고, DeepSeek-R1이 Reasoning과 usability를 모두 우선시하는 balanced approach를 통해 기반을 다짐
+
+- 트레이닝은 총 4단계로 구분된다.
+    1. Cold Start Phase
+    2. Reasoning RL Phase
+    3. Rejection Sampling Phase
+    4. Diverse RL Phase
+
+1. Cold Start Phase
+    ![Cold Start Explanation in Paper](https://huggingface.co/reasoning-course/images/resolve/main/grpo/5.png)
+
+    - Cold Start 단계는 model의 읽기 능력과 응답 품질을 위해 strong foundation을 다지도록 design되었음
+    - R1-Zero으로 생성한 high quality 소규모 데이터셋을 사용하여 V3-Base Model을 Finetuning
+    - 해당 innovative approach는 small high quality dataset을 사용하여 baseline readability and response quality를 확립
+2. Reasoning RL Phase
+    ![Reasoning RL in Paper](https://huggingface.co/reasoning-course/images/resolve/main/grpo/6.png)
+    - RL phase는 core reasoning capabilities 개발에 집중
+        - 해당 단계는 rule-based reinforcement learning을 사용
+    - 중요 ! : RL 단계의 모든 task는 `verifiable`하기 때문에 모델의 정답이 맞았는지 틀렸는지 체크할 수 있다.
+        - EX, 수학의 경우, mathematical solver를 이용해서 모델의 정답이 맞았는지 틀렸는지 확인 가능
+    - 이 단계를 특히 innovative하게 만드는 것은 direct optimization approach
+        - 이는 separate reward model의 필요를 없애고 training process를 간소화함
+3. Rejection Sampling Phase (Quality Control)
+    ![Rejection Sampling Phase in Paper](https://huggingface.co/reasoning-course/images/resolve/main/grpo/7.png)
+    - Rejection Sampling Phase동안 Model은 sample을 생성하고 quality control process를 통해 filter
+    - DeepSeek V3는 pure reasoning task를 넘어 broad scope로 quality jude로서 evaluating output을 제공
+    - Filtering된 데이터는 SFT에 이용된다.
+    - 이 단계의 innovation은 **high standard output을 보장하기 위해 multiple quality signal을 조합하기 위한 능력에 있음**
+4. Diverse RL Phase (Broad Alignment)
+    ![Diverse RL Phase](https://huggingface.co/reasoning-course/images/resolve/main/grpo/8.png)
+    - 마지막 Diverse RL Phase에서는 **sophisticated hybrid approach**를 통해 multiple task type을 다룸
+        1. Deterministic Task
+            - rule-based reward를 사용
+        2. Subjective Task
+            - LLM Feedback을 통해 평가
+    - 해당 단계는 Hybrid Approach를 통해 Human Preference Alignment를 달성하는 것
+        - Hybrid Approach : flexibility of language model evaluation과 rule-based system의 정확도를 조합
+
+### The Algorithm: Group Relative Policy Optimization (GRPO)
+- 이제 모델 훈련에 사용하는 algorithm 확인하기
+    - 논문 저자들은 GRPO를 model finetuning의 돌파구로서 설명함
+- GPRO의 novelty는 **directly optimize for preference rectification**을 하기 위한 능력에 있음
+    -  이는 model이 우리가 원하는 output을 내도록 Align하기 위한 direct and efficient route를 의미 (PPO같은 전통적 알고리즘이랑 대조되는)
+- GRPO가 어떻게 동작하는지 3가지 main component들을 통해 알아보자
+    1. Group Formation : Creating Multiple Solutions
+        ![First Step of GRPO](https://huggingface.co/reasoning-course/images/resolve/main/grpo/11.jpg)
+        - GRPO에서 첫 단계는 직관적
+            - 이는 어떻게 학생들이 어려운 문제를 여러 접근을 시도함으로써 푸는지와 비슷함
+            1. Prompt가 주어지면, 모델은 그냥 응답을 생성하는게 아니라 **문제를 풀기 위한 multiple attempts를 한다.** (4,8,16)
+            2. 모든 이러한 시도들은 group으로 모아서 유지된다.
+                - multiple student들의 solution을 비교하고 학습할 수 있는 것처럼
+    2. Preference Learning: Understanding What Makes a Good Solution
+        ![](https://huggingface.co/reasoning-course/images/resolve/main/grpo/12.jpg)
+        - GRPO는 간단함이 진짜 GOOD (really shine in its simplicity)
+            - RLHF는 solution의 평가를 위해 separate reward model이 요구되지만, **GRPO는 어떠한 function이든 model이든 사용할 수 있다.**
+        - Evaluation Process는 다양한 면에서 각 응답을 본다.
+            1. 마지막 정답이 맞아?
+            2. 정답이 proper formatting을 따르고 있어?
+            3. 추론이 제공된 답변과 일치해?
+        - 이 접근 방식을 특별하게 만드는 것은 **어떻게 점수를 다루는가**
+            - GRPO는 reward를 각 group안에서 normalize (not just giving score)
+                - simple but effective fomular사용
+            ``` python
+            Advantage = (reward - mean(group_rewards)) / std(group_rewards)
+            ```
+        - 이 normalization은 curve에서 grading하는 것과 같음
+            - 이는 모델이 group안에서 어떤 응답이 더 좋고 나쁜지 이해하는데 도움이 된다.
+    3. Optimization: Learning from Experience
+        - 마지막 단계는 GRPO가 각 그룹의 solution을 평가하여 학습한 것으로부터 모델을 improve하는 방법을 가르치는 내용
+            - 이 단계는 powerful and stable 모두 가짐 (2가지 단계로 구성)
+                1. 모델이 less effective approach로부터 벗어나 **successful solution을 만들도록 함**
+                2. 모델이 한 번에 크게 변하는 것을 막는 **safety mechanism(KL divergence penalty)을 포함**함
+        - 이러한 접근은 traditional method보다 더 stable하다.
+            1. 한 번에 두 개를 비교하는게 아니라 **여러 개를 한 번에 보기 때문**
+            2. group based normalization은 **reward scaling 문제를 방지하는데 도움을 주기 때문**
+            3. KL penalty이 **safety net같이 행동**하고 **model이 새로운 것을 학습하는 동안에 이미 아는 것을 까먹지 않도록 보장하기 때문**
+
+### GRPO Algorithm in Pseudocode
+``` text
+Input: 
+- initial_policy: Starting model to be trained
+- reward_function: Function that evaluates outputs
+- training_prompts: Set of training examples
+- group_size: Number of outputs per prompt (typically 4-16)
+
+Algorithm GRPO:
+1. For each training iteration:
+   a. Set reference_policy = initial_policy (snapshot current policy)
+   b. For each prompt in batch:
+      i. Generate group_size different outputs using initial_policy
+      ii. Compute rewards for each output using reward_function
+      iii. Normalize rewards within group:
+           normalized_advantage = (reward - mean(rewards)) / std(rewards)
+      iv. Update policy by maximizing the clipped ratio:
+          min(prob_ratio * normalized_advantage, 
+              clip(prob_ratio, 1-epsilon, 1+epsilon) * normalized_advantage)
+          - kl_weight * KL(initial_policy || reference_policy)
+          
+          where prob_ratio is current_prob / reference_prob
+
+Output: Optimized policy model
+```
+
+### Limitations and Challenges of GRPO
+- significant advancement를 보여주었지만, limitation과 challenge를 이해하는 것이 중요
+    1. Generation Cost : 한 prompt에 대해 여러 개의 응답을 생성하는 것은 계싼량을 증가시킨다. 
+    2. Batch Size Constraint : groups of completion을 모두 처리하기 위한 필요성으로 인해 effective batch size에 제한될 수 있고, 학습 process가 복잡해질 수 있고, 잠재적으로 훈련이 오래걸릴 수 있음
+    3. Reward Function Design : Training의 품질은 reward function에 심하게 의존.
+    4. Group Size Tradeoffs : optimal group size를 선택하는 것은 solution diversity와 computational cost의 밸런스가 중요. 
+    5. KL Divergence Tuning : KL divergence penalty에 대한 올바른 균형을 찾는 것은 careful tuning을 요구함
+        - 너무 높으면 모델이 효과적으로 학습 X (변화가 적어짐), 낮으면 initial capabilities에서 많이 벗어남 (변화가 큼)
