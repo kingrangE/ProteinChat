@@ -16,9 +16,9 @@
         - [A Fine-tuning Dataset and Benchmark for Large Language Models for Protein Understanding](https://arxiv.org/pdf/2406.05540)
             - Normal LLM
                 - internlm/internlm-7b / 20b
-                - Mistral-7B-instruct-v0.2
                 - SmolLM3 3B
                 - EXAONE 4.0 1.2B
+                - Mistral-7B-instruct-v0.2
                 - Llama 3.1 Nemotron Nano 8B V1
                 - Llama 3.2 3B Instruct
                 - Gemma 3 4B
@@ -31,9 +31,9 @@
         - PEER
 
 - LLM 개발 팀
-    - [ ] Reinforcement Learning 학습
+    - [X] Reinforcement Learning 학습
         - [Survey Paper](https://arxiv.org/pdf/2412.10400)
-    - [ ] 현규님이 공유해주신 Paper 학습
+    - [X] 현규님이 공유해주신 Paper 학습
         - [ProtT3](https://aclanthology.org/2024.acl-long.324.pdf)
-    - [ ] LoRA 실습 베이스라인 코드를 기반으로 성능 향상 개별적 연구
-    - [ ] Soft Prompt 실습 베이스라인 코드를 기반으로 성능 향상 개별적 연구
+    - [X] LoRA 실습 베이스라인 코드를 기반으로 성능 향상 개별적 연구
+    - [X] Soft Prompt 실습 베이스라인 코드를 기반으로 성능 향상 개별적 연구
