@@ -157,135 +157,391 @@
     3. Self-Correction : 2에서 인식한 내용을 바탕으로 접근 방식 수정
     4. Explanation : 왜 새로운 접근이 더 나은지 설명할 수 있음
 
-- 이 과정은 단순한 암기보다는 학습을 보여준다. 아래에서 예시를 통해 Aha moment를 갖는 순간을 상상하자
-    - EX, 퍼즐을 해결하는 상황
-        1. First try : 이 조각은 색을 보니까 여기 둬야해
-        2. Recognition : 잠만, 모양 안 맞네
-        3. Self-Correction : 아 그럼 저기에 둬야한다.
-        4. Explanation : 왜냐면 이 위치에서 색, 모양 둘다 맞잖아
+## Implementing GRPO in TRL
 
-- 이 능력은 단순한 훈련 데이터 암기가 아니라 RL로 학습하는 것
+- 이번 챕터에서는 **TRL**을 사용해서 **GRPO를 구현**하는 방법에 대해 다룸
 
-### The Training Process
-- R1 훈련은 multi-phase process
-    - 각 phase와 phase의 key innovation 분석
-        - final process는 2가지 모델 생성
-            1. DeepSeek-R1-Zero : 순서하게 RL만으로 훈련된 모델
-            2. DeepSeek-R1 : DeepSeek-R1-Zero을 기반으로 SFT하여 만든 모델
-            | Feature | DeepSeep-R1-Zero | DeepSeek-R1 |
-            | ---|---|---|
-            | Training Approach | Pure RL | Multi-Phase (SFT+RL)|
-            | FineTuning | None | Supervised FineTuning |
-            | Reasoning Capability | Emergent | Enhanced | 
-            | Key Characteristics | Strong reasoning but readability issues | Better language consistency and readability |
-    - DeepSeek-R1-Zero가 순수 RL의 잠재성을 증명하고, DeepSeek-R1이 Reasoning과 usability를 모두 우선시하는 balanced approach를 통해 기반을 다짐
+- Remind some of important concepts of GRPO Algorithm
+    1. Group Formation : Model은 각 prompt에 대해 multiple completion 생성
+    2. Preference Learning : 모델은 group들을 비교하는 reward function으로 학습
+    3. Training Configuration : Model은 training process를 control하기 위해 configuration 사용
 
-- 트레이닝은 총 4단계로 구분된다.
-    1. Cold Start Phase
-    2. Reasoning RL Phase
-    3. Rejection Sampling Phase
-    4. Diverse RL Phase
+- GRPO 구현을 위해 해야하는거
+    1. Define a dataset of prompts
+    2. Define a reward function : completions list를 받아서 reward list를 반환하는 reward function
+    3. GRPOConfig로 training process configure
+    4. GRPOTrainer를 사용하여 model 훈련
 
-1. Cold Start Phase
-    ![Cold Start Explanation in Paper](https://huggingface.co/reasoning-course/images/resolve/main/grpo/5.png)
+- GRPO Training 예시
 
-    - Cold Start 단계는 model의 읽기 능력과 응답 품질을 위해 strong foundation을 다지도록 design되었음
-    - R1-Zero으로 생성한 high quality 소규모 데이터셋을 사용하여 V3-Base Model을 Finetuning
-    - 해당 innovative approach는 small high quality dataset을 사용하여 baseline readability and response quality를 확립
-2. Reasoning RL Phase
-    ![Reasoning RL in Paper](https://huggingface.co/reasoning-course/images/resolve/main/grpo/6.png)
-    - RL phase는 core reasoning capabilities 개발에 집중
-        - 해당 단계는 rule-based reinforcement learning을 사용
-    - 중요 ! : RL 단계의 모든 task는 `verifiable`하기 때문에 모델의 정답이 맞았는지 틀렸는지 체크할 수 있다.
-        - EX, 수학의 경우, mathematical solver를 이용해서 모델의 정답이 맞았는지 틀렸는지 확인 가능
-    - 이 단계를 특히 innovative하게 만드는 것은 direct optimization approach
-        - 이는 separate reward model의 필요를 없애고 training process를 간소화함
-3. Rejection Sampling Phase (Quality Control)
-    ![Rejection Sampling Phase in Paper](https://huggingface.co/reasoning-course/images/resolve/main/grpo/7.png)
-    - Rejection Sampling Phase동안 Model은 sample을 생성하고 quality control process를 통해 filter
-    - DeepSeek V3는 pure reasoning task를 넘어 broad scope로 quality jude로서 evaluating output을 제공
-    - Filtering된 데이터는 SFT에 이용된다.
-    - 이 단계의 innovation은 **high standard output을 보장하기 위해 multiple quality signal을 조합하기 위한 능력에 있음**
-4. Diverse RL Phase (Broad Alignment)
-    ![Diverse RL Phase](https://huggingface.co/reasoning-course/images/resolve/main/grpo/8.png)
-    - 마지막 Diverse RL Phase에서는 **sophisticated hybrid approach**를 통해 multiple task type을 다룸
-        1. Deterministic Task
-            - rule-based reward를 사용
-        2. Subjective Task
-            - LLM Feedback을 통해 평가
-    - 해당 단계는 Hybrid Approach를 통해 Human Preference Alignment를 달성하는 것
-        - Hybrid Approach : flexibility of language model evaluation과 rule-based system의 정확도를 조합
+``` python
+from trl import GRPOTrainer, GRPOConfig
+from datasets import load_dataset
 
-### The Algorithm: Group Relative Policy Optimization (GRPO)
-- 이제 모델 훈련에 사용하는 algorithm 확인하기
-    - 논문 저자들은 GRPO를 model finetuning의 돌파구로서 설명함
-- GPRO의 novelty는 **directly optimize for preference rectification**을 하기 위한 능력에 있음
-    -  이는 model이 우리가 원하는 output을 내도록 Align하기 위한 direct and efficient route를 의미 (PPO같은 전통적 알고리즘이랑 대조되는)
-- GRPO가 어떻게 동작하는지 3가지 main component들을 통해 알아보자
-    1. Group Formation : Creating Multiple Solutions
-        ![First Step of GRPO](https://huggingface.co/reasoning-course/images/resolve/main/grpo/11.jpg)
-        - GRPO에서 첫 단계는 직관적
-            - 이는 어떻게 학생들이 어려운 문제를 여러 접근을 시도함으로써 푸는지와 비슷함
-            1. Prompt가 주어지면, 모델은 그냥 응답을 생성하는게 아니라 **문제를 풀기 위한 multiple attempts를 한다.** (4,8,16)
-            2. 모든 이러한 시도들은 group으로 모아서 유지된다.
-                - multiple student들의 solution을 비교하고 학습할 수 있는 것처럼
-    2. Preference Learning: Understanding What Makes a Good Solution
-        ![](https://huggingface.co/reasoning-course/images/resolve/main/grpo/12.jpg)
-        - GRPO는 간단함이 진짜 GOOD (really shine in its simplicity)
-            - RLHF는 solution의 평가를 위해 separate reward model이 요구되지만, **GRPO는 어떠한 function이든 model이든 사용할 수 있다.**
-        - Evaluation Process는 다양한 면에서 각 응답을 본다.
-            1. 마지막 정답이 맞아?
-            2. 정답이 proper formatting을 따르고 있어?
-            3. 추론이 제공된 답변과 일치해?
-        - 이 접근 방식을 특별하게 만드는 것은 **어떻게 점수를 다루는가**
-            - GRPO는 reward를 각 group안에서 normalize (not just giving score)
-                - simple but effective fomular사용
-            ``` python
-            Advantage = (reward - mean(group_rewards)) / std(group_rewards)
-            ```
-        - 이 normalization은 curve에서 grading하는 것과 같음
-            - 이는 모델이 group안에서 어떤 응답이 더 좋고 나쁜지 이해하는데 도움이 된다.
-    3. Optimization: Learning from Experience
-        - 마지막 단계는 GRPO가 각 그룹의 solution을 평가하여 학습한 것으로부터 모델을 improve하는 방법을 가르치는 내용
-            - 이 단계는 powerful and stable 모두 가짐 (2가지 단계로 구성)
-                1. 모델이 less effective approach로부터 벗어나 **successful solution을 만들도록 함**
-                2. 모델이 한 번에 크게 변하는 것을 막는 **safety mechanism(KL divergence penalty)을 포함**함
-        - 이러한 접근은 traditional method보다 더 stable하다.
-            1. 한 번에 두 개를 비교하는게 아니라 **여러 개를 한 번에 보기 때문**
-            2. group based normalization은 **reward scaling 문제를 방지하는데 도움을 주기 때문**
-            3. KL penalty이 **safety net같이 행동**하고 **model이 새로운 것을 학습하는 동안에 이미 아는 것을 까먹지 않도록 보장하기 때문**
+# 1. Load your dataset
+dataset = load_dataset("your_dataset", split="train")
 
-### GRPO Algorithm in Pseudocode
-``` text
-Input: 
-- initial_policy: Starting model to be trained
-- reward_function: Function that evaluates outputs
-- training_prompts: Set of training examples
-- group_size: Number of outputs per prompt (typically 4-16)
 
-Algorithm GRPO:
-1. For each training iteration:
-   a. Set reference_policy = initial_policy (snapshot current policy)
-   b. For each prompt in batch:
-      i. Generate group_size different outputs using initial_policy
-      ii. Compute rewards for each output using reward_function
-      iii. Normalize rewards within group:
-           normalized_advantage = (reward - mean(rewards)) / std(rewards)
-      iv. Update policy by maximizing the clipped ratio:
-          min(prob_ratio * normalized_advantage, 
-              clip(prob_ratio, 1-epsilon, 1+epsilon) * normalized_advantage)
-          - kl_weight * KL(initial_policy || reference_policy)
-          
-          where prob_ratio is current_prob / reference_prob
+# 2. Define a simple reward function
+def reward_func(completions, **kwargs):
+    """Example: Reward longer completions"""
+    return [float(len(completion)) for completion in completions]
 
-Output: Optimized policy model
+
+# 3. Configure training
+training_args = GRPOConfig(
+    output_dir="output",
+    num_train_epochs=3,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=2,
+    logging_steps=10,
+)
+
+# 4. Initialize and train
+trainer = GRPOTrainer(
+    model="your_model",  # e.g. "Qwen/Qwen2-0.5B-Instruct"
+    args=training_args,
+    train_dataset=dataset,
+    reward_funcs=reward_func,
+)
+trainer.train()
 ```
 
-### Limitations and Challenges of GRPO
-- significant advancement를 보여주었지만, limitation과 challenge를 이해하는 것이 중요
-    1. Generation Cost : 한 prompt에 대해 여러 개의 응답을 생성하는 것은 계싼량을 증가시킨다. 
-    2. Batch Size Constraint : groups of completion을 모두 처리하기 위한 필요성으로 인해 effective batch size에 제한될 수 있고, 학습 process가 복잡해질 수 있고, 잠재적으로 훈련이 오래걸릴 수 있음
-    3. Reward Function Design : Training의 품질은 reward function에 심하게 의존.
-    4. Group Size Tradeoffs : optimal group size를 선택하는 것은 solution diversity와 computational cost의 밸런스가 중요. 
-    5. KL Divergence Tuning : KL divergence penalty에 대한 올바른 균형을 찾는 것은 careful tuning을 요구함
-        - 너무 높으면 모델이 효과적으로 학습 X (변화가 적어짐), 낮으면 initial capabilities에서 많이 벗어남 (변화가 큼)
+- 위 코드의 Key Component
+1. Dataset Format
+    - Dataset은 model이 응답할 prompt를 포함해야 함.
+    - GRPO trainer는 각 prompt에 대해 multiple completion을 생성하고, reward function을 사용해서 결과들을 비교
+
+2. Reward Function
+    - 이 보상 함수가 중요함. 모델이 어떻게 학습할 것인지 결정하는 함수
+
+``` python
+# Example 1: Reward based on completion length
+def reward_length(completions, **kwargs):
+    return [float(len(completion)) for completion in completions]
+
+
+# Example 2: Reward based on matching a pattern
+import re
+
+def reward_format(completions, **kwargs):
+    pattern = r"^<think>.*?</think><answer>.*?</answer>$"
+    return [1.0 if re.match(pattern, c) else 0.0 for c in completions]
+```
+
+3. Training Configuration
+
+``` python
+training_args = GRPOConfig(
+    # Essential parameters
+    output_dir="output",
+    num_train_epochs=3,
+    num_generation=4,  # Number of completions to generate for each prompt
+    per_device_train_batch_size=4,  # We want to get all generations in one device batch
+    # Optional but useful
+    gradient_accumulation_steps=2,
+    learning_rate=1e-5,
+    logging_steps=10,
+    # GRPO specific (optional)
+    use_vllm=True,  # Speed up generation
+)
+```
+
+- `num_generation` : GRPO에서 특히 중요 (group size 결정)(각 prompt 별로 답변을 몇 개나 생성할까 결정)
+
+    - Too small (eg. 2-3) : 충분히 다양하지 않음(의미 있는 비교가 안 되는 양)
+    - Recommended(4-16) : **diversity와 computational efficiency의 적절한 balance 제공**
+    - Larger values : 학습을 improve 하겠지만, computational cost가 많이 증가
+
+- Group Size는 내 computational resource에 근거해서 선택해야 함. 간단한 작업이면 4-8 정도면 충분한데, 복잡한 추론 작업이면 8-16정도의 큰 group이 필요
+
+### Tips for Success
+
+1. Memory Management : `per_device_train_batch_size`와 `gradient_accumulation_steps`를 내 GPU memory에 맞게 조정
+2. Speed : `use_vllm=True`로 설정하면 내 모델이 지원된다면 faster generation 가능
+3. Monitoring : training동안 metric 기록
+    - `reward` : completion 전체의 평균 reward
+    - `reward_std` : reward group의 standard deviation(표준편차)
+    - `kl` : reference model과의 KL divergence
+
+### Reward Function Design
+
+- Deepseek R1 paper에서 몇가지 효과적인 reward function design을 보여줌
+
+1.  Length-Based Rewards
+    - 구현하기 쉬운 보상 중 하나는 length-based reward 긴 응답에 reward 줄 수 있음
+    - 아래와 같이 코드를 작성하면 내가 원하는 길이보다 너무 길거나 짧은 응답에 penalty를 줄 수 있음
+    
+``` python
+def reward_len(completions, **kwargs):
+    ideal_length = 20
+    return [-abs(ideal_length - len(completion)) for completion in completions]
+```
+
+2. Rule-Based Rewards for Verifiable Tasks
+    - 객관적인 정답이 있는 문제에 대해서 아래처럼 rule-based reward function을 작성할 수도 있다.
+
+``` python
+def problem_reward(completions, answers, **kwargs):
+    """Reward function for math problems with verifiable answers
+    completions: list of completions to evaluate
+    answers: list of answers to the problems from the dataset
+    """
+
+    rewards = []
+    for completion, correct_answer in zip(completions, answers):
+        # Extract the answer from the completion
+        try:
+            # This is a simplified example - you'd need proper parsing
+            answer = extract_final_answer(completion)
+            # Binary reward: 1 for correct, 0 for incorrect
+            reward = 1.0 if answer == correct_answer else 0.0
+            rewards.append(reward)
+        except:
+            # If we can't parse an answer, give a low reward
+            rewards.append(0.0)
+
+    return rewards
+```
+
+3. Format-Based Rewards
+    - DeepSeek R1 training에서 중요했던 proper formatting에 reward 줄 수 있음.
+
+``` python
+def format_reward(completions, **kwargs):
+    """Reward completions that follow the desired format"""
+    # Example: Check if the completion follows a think-then-answer format
+    pattern = r"<think>(.*?)</think>\s*<answer>(.*?)</answer>"
+
+    rewards = []
+    for completion in completions:
+        match = re.search(pattern, completion, re.DOTALL)
+        if match:
+            # Check if there's substantial content in both sections
+            think_content = match.group(1).strip()
+            answer_content = match.group(2).strip()
+
+            if len(think_content) > 20 and len(answer_content) > 0:
+                rewards.append(1.0)
+            else:
+                rewards.append(
+                    0.5
+                )  # Partial reward for correct format but limited content
+        else:
+            rewards.append(0.0)  # No reward for incorrect format
+
+    return rewards
+```
+
+## Practical Exercise: Fine-tune a model with GRPO
+
+- 실제 GRPO를 이용하여 모델을 finetuning하는 것을 해볼 예정
+    
+### Install dependencies
+
+``` bash
+!pip install -qqq datasets==3.2.0 transformers==4.47.1 trl==0.14.0 peft==0.14.0 accelerate==1.2.1 bitsandbytes==0.45.2 wandb==0.19.7 --progress-bar off
+!pip install -qqq flash-attn --no-build-isolation --progress-bar off
+```
+
+### Import Libraries
+
+``` bash
+import torch
+from datasets import load_dataset
+from peft import LoraConfig, get_peft_model
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import GRPOConfig, GRPOTrainer
+```
+
+### Import and log in to Weights & Biases
+
+- Weight & bias는 실험 monitoring, logging tool
+- finetuning process 기록에 사용
+
+``` python
+import wandb
+
+wandb.login()
+```
+
+### Load the dataset
+
+- 본인이 finetuning에 사용할 dataset을 고르면 된다.
+    - 예시에서는 short stories list가 들어있는 [mlabonne/smoltldr](https://huggingface.co/datasets/mlabonne/smoltldr) dataset 사용
+
+``` python
+dataset = load_dataset("mlabonne/smoltldr")
+print(dataset)
+```
+
+### Load Model
+
+- 이제 실제 훈련시킬 모델을 가져오기
+    - 예제에선,  [SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M) model 사용
+        - GPU가 보통 제한적이라서 작은 모델 선택한 것
+- 모델 GET
+
+``` python
+model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    torch_dtype="auto",
+    device_map="auto",
+    attn_implementation="flash_attention_2",
+)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+```
+
+### Load LoRA
+
+- 이제 LoRA configuration을 가져오고, Trainable parameter 숫자를 줄이기 위해 LoRA를 사용할 예정
+
+- [LoRA](https://kingrang-e.tistory.com/4)는 이전 내용에서 다루었음 
+
+``` python
+# Load LoRA
+lora_config = LoraConfig(
+    task_type="CAUSAL_LM",
+    r=16,
+    lora_alpha=32,
+    target_modules="all-linear",
+)
+model = get_peft_model(model, lora_config)
+print(model.print_trainable_parameters())
+```
+
+### Define the reward function
+
+- 이전 Chapter에서 말했듯, GRPO는 model 향상을 위해 어떠한 reward function도 사용할 수 있음.
+    - 이번 예시에선, 이전 단락에서 말한 length관련 simple reward function을 사용할 예정
+
+``` python
+ideal_length = 50
+
+
+def reward_len(completions, **kwargs):
+    return [-abs(ideal_length - len(completion)) for completion in completions]
+```
+
+### Define the training arguments
+
+- 이제 훈련을 위해 training arguments를 정의해야 함.
+    - `GRPOConfig`를 사용하여 training argument를 전형적인 `transformer` style로 정의할 예정
+    - Training Argument에 대한 정보가 필요하면 [여기](https://huggingface.co/docs/transformers/en/main_classes/trainer#trainingarguments) 확인
+
+``` python
+# Training arguments
+training_args = GRPOConfig(
+    output_dir="GRPO", # 결과 저장 폴더
+    learning_rate=2e-5, # learning rate
+    per_device_train_batch_size=8, # batch size
+    gradient_accumulation_steps=2, # gradient 누적 step (2이므로 batch 16과 같은 효과)
+    max_prompt_length=512, # 최대 prompt 길이
+    max_completion_length=96, # 최대 완료 길이
+    num_generations=8, # 생성할 샘플 수
+    optim="adamw_8bit", # optimizer
+    num_train_epochs=1, # epoch
+    bf16=True, # datatype
+    report_to=["wandb"], #. using wandb to monitor
+    remove_unused_columns=False, 
+    logging_steps=1, 
+)
+```
+
+- 이제 우리는 model, dataset, training argument로 시작할 수 있다.
+
+``` python
+# Trainer
+trainer = GRPOTrainer(
+    model=model,
+    reward_funcs=[reward_len],
+    args=training_args,
+    train_dataset=dataset["train"],
+)
+
+# Train model
+wandb.init(project="GRPO")
+trainer.train()
+```
+
+### Push the model to the Hub during training
+
+- 만약 우리가 `push_to_hub` argument를 True로 하고 `model_id` argument를 유효한 모델 이름으로 했다면, 훈련 하는 동안 Model은 HuggingFace Hub에 업로드 된다.
+    - vibe testing을 바로 시작하는 경우에 유용함
+
+### Interpret training results
+
+- `GRPOTrainer`는 reward function의  reward, loss, 다른 metric 범위로 log
+    - 우리는 **reward**와 **loss**만에 초점
+- reward의 경우 아래 그림처럼 훈련할수록 0에 가까워지고, 이건 모델이 잘 훈련되었다는 것
+
+![](https://huggingface.co/reasoning-course/images/resolve/main/grpo/13.png)
+
+
+- loss의 경우에는 **0에서 시작해서 점점 loss가 증가하는데** 이는 직관적이지 않게 보인다. 이 행동은 **GRPO에서 예상되고 algorithm의 수학적인 공식과 직접적 연관이 있음.**    
+    - GRPO에서 loss는 KL divergence(original policy 대비 상한액)과 비례. training이 진행되는 동안, 모델은 reward function과 더 잘 match되는 text를 생성하기 위해 학습하고, 이로인해 초기 policy로부터 더 벗어나게 됨. 
+    - 이렇게 loss가 증가하는 것은 실제로 reward function에 잘 맞춰 훈련되고 있다는 것을 나타냄
+
+![](https://huggingface.co/reasoning-course/images/resolve/main/grpo/14.png)
+
+### Save and publish the model
+
+- model을 community에 공유
+
+``` python
+merged_model = trainer.model.merge_and_unload()
+merged_model.push_to_hub(
+    "SmolGRPO-135M", private=False, tags=["GRPO", "Reasoning-Course"]
+)
+```
+
+### Generate text
+
+- 이제 Finetuning이 성공적으로 완료되었으므로, model로 text를 생성해보자
+
+``` python
+prompt = """
+# A long document about the Cat
+
+The cat (Felis catus), also referred to as the domestic cat or house cat, is a small 
+domesticated carnivorous mammal. It is the only domesticated species of the family Felidae.
+Advances in archaeology and genetics have shown that the domestication of the cat occurred
+in the Near East around 7500 BC. It is commonly kept as a pet and farm cat, but also ranges
+freely as a feral cat avoiding human contact. It is valued by humans for companionship and
+its ability to kill vermin. Its retractable claws are adapted to killing small prey species
+such as mice and rats. It has a strong, flexible body, quick reflexes, and sharp teeth,
+and its night vision and sense of smell are well developed. It is a social species,
+but a solitary hunter and a crepuscular predator. Cat communication includes
+vocalizations—including meowing, purring, trilling, hissing, growling, and grunting—as
+well as body language. It can hear sounds too faint or too high in frequency for human ears,
+such as those made by small mammals. It secretes and perceives pheromones.
+"""
+
+messages = [
+    {"role": "user", "content": prompt},
+]
+```
+
+- 위와같이 Prompt를 작성하고, 이제 model로 text를 생성할 수 있다.
+
+``` python
+# Generate text
+from transformers import pipeline
+
+generator = pipeline("text-generation", model="SmolGRPO-135M")
+
+## Or use the model and tokenizer we defined earlier
+# generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
+
+generate_kwargs = {
+    "max_new_tokens": 256,
+    "do_sample": True,
+    "temperature": 0.5,
+    "min_p": 0.1,
+}
+
+generated_text = generator(messages, generate_kwargs=generate_kwargs)
+
+print(generated_text)
+```
