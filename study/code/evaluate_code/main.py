@@ -2,41 +2,75 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from langchain_core.prompts import ChatPromptTemplate
+import re
+from tqdm import tqdm
 
-ds = load_dataset("sequential-lab/TP53_protein_variants")
+def get_prompt(sequence):
 
-sequence = ds["train"]["sequence"][0]
-system_template = """
-    당신은 단백질의 아미노산 서열을 분석하여 병원성 변이(Pathogenic Variant) 여부를 예측하는 생물정보학 전문가입니다.
+    system_template = """
+        You are a bioinformatics expert specializing in analyzing amino acid sequences to predict pathogenic variants.
 
-    주어진 아미노산 서열(sequence)이 질병을 유발할 가능성이 있는 '1(pathogenic)'인지, 그렇지 않은 '0(non-pathogenic)'인지 분류해주세요.
-    답변은 반드시 '1' 또는 '0'으로만 해주세요.
+        Classify the given amino acid sequence as '1 (pathogenic)' if it is likely to cause disease, or '0 (non-pathogenic)' if it is not.
+        Your answer must be either '1' or '0'.
 
-    아래 예시를 참고하여 마지막 질문에 답변해주세요.
+        Refer to the examples below to answer the final question.
 
-    # 예시 1 (병원성)
-    - sequence: MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGPDEAPRMPEAAPPVAPAPAAPTPAAPAPAPSWPLSSSVPSQKTYQGSYGFRLGFLHSGTA
-    - label: 1
+        - example 1 (pathogenic)
+        sequence: MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGPDEAPRMPEAAPPVAPAPAAPTPAAPAPAPSWPLSSSVPSQKTYQGSYGFRLGFLHSGTA+
+        label: 1
 
-    # 예시 2 (비병원성)
-    - sequence: MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGPDEAPRMPEAAPPVAPAPAAPTPAAPAPAPSWPLSSSVPSQKTYQGSYGFRLGFLHSGTAKSVTCTYSPALNKMFCQLAKTCPVQLWVDSTPPPGTRVRAMAIYKQSQHMTEVVRRCPHHERCSDSDGLAPPQHLIRVEGNLRVEYLDDRNTFRHSVVVPYEPPEVGSDCTTIHYNYMCNSSCMGGMNRRPILTIITLEDSSGNLLGRNSFEVRVCACPGRDRRTEEENLRKKGEPHHELPPGSTKRALPNNTSSSPQPKKKPLDGEYFTLQIRGRERFEMFRELNEALELKDAQAGKEPGGSRAHSSHLKSKKGQSTSRHKKLMFKTEGPDSD
-    - label: 0
+        - example 2 (non-pathogenic)
+        sequence: MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGPDEAPRMPEAAPPVAPAPAAPTPAAPAPAPSWPLSSSVPSQKTYQGSYGFRLGFLHSGTAKSVTCTYSPALNKMFCQLAKTCPVQLWVDSTPPPGTRVRAMAIYKQSQHMTEVVRRCPHHERCSDSDGLAPPQHLIRVEGNLRVEYLDDRNTFRHSVVVPYEPPEVGSDCTTIHYNYMCNSSCMGGMNRRPILTIITLEDSSGNLLGRNSFEVRVCACPGRDRRTEEENLRKKGEPHHELPPGSTKRALPNNTSSSPQPKKKPLDGEYFTLQIRGRERFEMFRELNEALELKDAQAGKEPGGSRAHSSHLKSKKGQSTSRHKKLMFKTEGPDSD
+        label: 0
+        """
+
+    human_template = """
+        - question 
+            - sequence : {sequence}
+            - label : 
     """
 
-human_template = """
-    - sequence : {sequence}
-    - label : 
-"""
+    prompt_template = ChatPromptTemplate({
+        ("system",system_template),
+        ("human",human_template)
+    })
 
-prompt_template = ChatPromptTemplate({
-    ("system",system_template),
-    ("human",human_template)
-})
+    prompt = prompt_template.invoke({
+        "sequence" : sequence
+    })
+    return prompt.to_string()
 
-prompt = prompt_template.invoke({
-    "sequence" : sequence
-})
 
+def evalute_model(dataset, model, tokenizer):
+    correct = 0
+    for sequence,answer in tqdm(zip(dataset["sequence"],dataset["label"])):
+        prompt = get_prompt(sequence=sequence)
+        inputs = tokenizer([prompt], return_tensors="pt")
+
+        for k,v in inputs.items():
+            inputs[k] = v.cuda()
+
+        gen_kwargs = {"max_length": inputs.input_ids.shape[1]+5, 
+                    "temperature": 0.8, 
+                    "do_sample": True, 
+                    }
+
+        output = model.generate(**inputs, **gen_kwargs,use_cache=False)
+        result = tokenizer.decode(output[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+        print("출력 :",result)
+        match = re.search(r'\d+', result)
+        if match:
+            try:
+                predicted_answer = int(match.group(0))
+                print("답 :",predicted_answer)
+                if predicted_answer == answer:
+                    correct += 1
+            except (ValueError, IndexError):
+                continue
+    print("성능 :",correct/len(dataset))
+        
+ds = load_dataset("sequential-lab/TP53_protein_variants")
+dataset = ds["train"]
 
 tokenizer = AutoTokenizer.from_pretrained("internlm/internlm-7b", trust_remote_code=True)
 
@@ -45,22 +79,7 @@ model = AutoModelForCausalLM.from_pretrained("internlm/internlm-7b", torch_dtype
 model = model.eval()
 
 
-
-inputs = tokenizer([prompt], return_tensors="pt")
-
-
-for k,v in inputs.items():
-    inputs[k] = v.cuda()
-
-gen_kwargs = {"max_length": 5, 
-              "temperature": 0.8, 
-              "do_sample": True, 
-              }
-
-output = model.generate(**inputs, **gen_kwargs)
-output = tokenizer.decode(output[0].tolist(), skip_special_tokens=True)
-
-print(output)
+evalute_model(dataset,model,tokenizer)
 
 # <s> A beautiful flower box made of white rose wood. It is a perfect gift for weddings, birthdays and anniversaries.
 # All the roses are from our farm Roses Flanders. Therefor you know that these flowers last much longer than those in store or online!</s>
